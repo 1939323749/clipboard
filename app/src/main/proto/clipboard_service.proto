@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package clipboard_service;
+
+option go_package = "github.com/1939323749/clipboard_server/clipboard_service";
+
+service ClipboardService {
+  rpc CreateClipboards (CreateClipboardsRequest) returns (CreateClipboardsResponse) {}
+  rpc GetClipboards (GetClipboardsRequest) returns (GetClipboardsResponse) {}
+  rpc SubscribeClipboard (SubscribeClipboardRequest) returns (stream ClipboardMessage) {}
+}
+
+message CreateClipboardsRequest {
+  repeated string values = 1;
+}
+
+message CreateClipboardsResponse {
+  repeated string ids = 1;
+}
+
+message GetClipboardsRequest {
+  repeated string ids = 1;
+}
+
+message GetClipboardsResponse {
+  repeated string values = 1;
+}
+
+message SubscribeClipboardRequest {}
+
+message ClipboardMessage {
+  string value = 1;
+}
