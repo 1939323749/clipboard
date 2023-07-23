@@ -30,54 +30,79 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private val contents = mutableStateOf(listOf<String?>())
 
+    //temporary server for testing
+    private val server = "0.tcp.ap.ngrok.io"
+    private val port = 18273
+
+    var channel: ManagedChannel = ManagedChannelBuilder.forAddress(server, port)
+        .usePlaintext()
+        .build()
+
+    var stub: ClipboardServiceGrpc.ClipboardServiceStub = ClipboardServiceGrpc.newStub(channel)
+
+    // Getting clipboards
+    private val getClipboardsRequest: ClipboardServiceOuterClass.GetClipboardsRequest = ClipboardServiceOuterClass.GetClipboardsRequest.newBuilder()
+        .build()
+    private val responseObserver = object : StreamObserver<ClipboardServiceOuterClass.GetClipboardsResponse> {
+        override fun onNext(value: ClipboardServiceOuterClass.GetClipboardsResponse) {
+            contents.value = value.valuesList
+        }
+
+        override fun onError(t: Throwable) {
+            channel.shutdown()
+            channel = ManagedChannelBuilder.forAddress(server, port)
+                .usePlaintext()
+                .build()
+            stub = ClipboardServiceGrpc.newStub(channel)
+            val resetClipboardsRequest = ClipboardServiceOuterClass.GetClipboardsRequest.newBuilder()
+                .build()
+            stub.getClipboards(resetClipboardsRequest, this)
+        }
+
+        override fun onCompleted() {
+            // Handle completion here
+        }
+    } as StreamObserver<ClipboardServiceOuterClass.GetClipboardsResponse>
+
+    private val subscribeClipboardRequest: ClipboardServiceOuterClass.SubscribeClipboardRequest = ClipboardServiceOuterClass.SubscribeClipboardRequest.newBuilder().build()
+
+    private lateinit var subscribeObserver: StreamObserver<ClipboardServiceOuterClass.ClipboardMessage>
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            App(contents)
+            App(contents, server, port)
         }
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val channel: ManagedChannel = ManagedChannelBuilder.forAddress("0.tcp.jp.ngrok.io", 12537)
+
+        subscribeObserver = object : StreamObserver<ClipboardServiceOuterClass.ClipboardMessage> {
+            override fun onNext(value: ClipboardServiceOuterClass.ClipboardMessage?) {
+                value?.let {
+                    contents.value = listOf(it.value) + contents.value
+                }
+            }
+
+            override fun onError(t: Throwable?) {
+                channel.shutdown()
+                channel = ManagedChannelBuilder.forAddress(server, port)
                     .usePlaintext()
                     .build()
 
-                val stub: ClipboardServiceGrpc.ClipboardServiceStub = ClipboardServiceGrpc.newStub(channel)
+                stub = ClipboardServiceGrpc.newStub(channel)
 
-                // Getting clipboards
-                val getClipboardsRequest = ClipboardServiceOuterClass.GetClipboardsRequest.newBuilder()
-                    .build()
-                val responseObserver = object : StreamObserver<ClipboardServiceOuterClass.GetClipboardsResponse> {
-                    override fun onNext(value: ClipboardServiceOuterClass.GetClipboardsResponse) {
-                        contents.value = value.valuesList
-                    }
-
-                    override fun onError(t: Throwable) {
-                        // Handle error here
-                    }
-
-                    override fun onCompleted() {
-                        // Handle completion here
-                    }
-                } as StreamObserver<ClipboardServiceOuterClass.GetClipboardsResponse>
-                stub.getClipboards(getClipboardsRequest, responseObserver)
-
-                val subscribeClipboardRequest =
+                val resubscribeClipboardRequest =
                     ClipboardServiceOuterClass.SubscribeClipboardRequest.newBuilder().build()
-                val subscribeObserver = object : StreamObserver<ClipboardServiceOuterClass.ClipboardMessage> {
-                    override fun onNext(value: ClipboardServiceOuterClass.ClipboardMessage?) {
-                        value?.let {
-                            contents.value = listOf(it.value) + contents.value
-                        }
-                    }
 
-                    override fun onError(t: Throwable?) {
-                        // Handle error here
-                    }
+                stub.subscribeClipboard(resubscribeClipboardRequest, subscribeObserver)
+            }
 
-                    override fun onCompleted() {
-                        // Handle completion here
-                    }
-                }
+            override fun onCompleted() {
+                // Handle completion here
+            }
+        }
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                stub.getClipboards(getClipboardsRequest, responseObserver)
                 stub.subscribeClipboard(subscribeClipboardRequest, subscribeObserver)
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -86,16 +111,15 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("UnrememberedMutableState", "UnusedMaterial3ScaffoldPaddingParameter")
 @Composable
-fun App(contents: MutableState<List<String?>> = mutableStateOf(listOf())) {
+fun App(contents: MutableState<List<String?>> = mutableStateOf(listOf()), server: String, port: Int) {
     val context = LocalContext.current
     ClipboardTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             var showDetails by remember { mutableStateOf(false) }
-            var showDialog by remember { mutableStateOf(false) }
+            var showSubmitBox by remember { mutableStateOf(false) }
             var inputText by remember { mutableStateOf("") }
             var chosenText by remember { mutableStateOf("") }
             Scaffold {
@@ -104,50 +128,51 @@ fun App(contents: MutableState<List<String?>> = mutableStateOf(listOf())) {
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    if (showDialog) {
+                    if (showSubmitBox) {
                         SubmitBox(
-                            onDismiss = { showDialog = false },
+                            onDismiss = { showSubmitBox = false },
                             text = inputText,
                             onTextChange = { inputText = it },
                             onConfirm = { submitText ->
-                                    if (submitText.isEmpty()) {
+                                if (submitText.isEmpty()) {
 
-                                            Toast.makeText(context, "Input is empty!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Input is empty!", Toast.LENGTH_SHORT).show()
 
-                                    }else {
-                                        runBlocking {
-                                            try {
-                                                val channel: ManagedChannel =
-                                                    ManagedChannelBuilder.forAddress("0.tcp.jp.ngrok.io", 12537)
-                                                        .usePlaintext()
-                                                        .build()
+                                } else {
+                                    runBlocking {
+                                        try {
+                                            val channel: ManagedChannel =
+                                                ManagedChannelBuilder.forAddress(server, port)
+                                                    .usePlaintext()
+                                                    .build()
 
-                                                val stub: ClipboardServiceGrpc.ClipboardServiceBlockingStub =
-                                                    ClipboardServiceGrpc.newBlockingStub(channel)
+                                            val stub: ClipboardServiceGrpc.ClipboardServiceBlockingStub =
+                                                ClipboardServiceGrpc.newBlockingStub(channel)
 
-                                                val createClipboardsRequest =
-                                                    ClipboardServiceOuterClass.CreateClipboardsRequest.newBuilder()
-                                                        .addValues(submitText)
-                                                        .build()
-                                                val response = stub.createClipboards(createClipboardsRequest)
+                                            val createClipboardsRequest =
+                                                ClipboardServiceOuterClass.CreateClipboardsRequest.newBuilder()
+                                                    .addValues(submitText)
+                                                    .build()
+                                            val response = stub.createClipboards(createClipboardsRequest)
 
-                                                if (response.idsList.isNotEmpty()) {
-                                                    showDialog = false
-                                                }
-                                            } catch (e: Exception) {
-                                                // Handle the error here
+                                            if (response.idsList.isNotEmpty()) {
+                                                showSubmitBox = false
+                                                channel.shutdown()
                                             }
+                                        } catch (e: Exception) {
+                                            e.printStackTrace()
+                                            Toast.makeText(context, "Network error or server error", Toast.LENGTH_SHORT)
+                                                .show()
+                                        } finally {
+                                            inputText = ""
                                         }
-                                        inputText = ""
                                     }
-                            },
-                            channel = ManagedChannelBuilder.forAddress("0.tcp.jp.ngrok.io", 12537)
-                                .usePlaintext()
-                                .build()
+                                }
+                            }
                         )
                     }
                     if (showDetails) {
-                        detailBox(
+                        DetailBox(
                             onDismiss = { showDetails = false },
                             text = chosenText,
                             onConfirm = { showDetails = false })
@@ -201,7 +226,7 @@ fun App(contents: MutableState<List<String?>> = mutableStateOf(listOf())) {
                     }
                 }
                 SmallFloatingActionButton(
-                    onClick = { showDialog = true },
+                    onClick = { showSubmitBox = true },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
                     shape = MaterialTheme.shapes.large
                 ) {
@@ -220,7 +245,7 @@ fun App(contents: MutableState<List<String?>> = mutableStateOf(listOf())) {
 @Composable
 fun SubmitBox(
     onDismiss: () -> Unit = {}, text: String, onTextChange: (String) -> Unit,
-    onConfirm: (String) -> Unit, channel: ManagedChannel
+    onConfirm: (String) -> Unit
 ) {
 
     AlertDialog(
@@ -247,7 +272,7 @@ fun SubmitBox(
 }
 
 @Composable
-fun detailBox(onDismiss: () -> Unit = {}, text: String, onConfirm: () -> Unit) {
+fun DetailBox(onDismiss: () -> Unit = {}, text: String, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = "Detail Box") },
