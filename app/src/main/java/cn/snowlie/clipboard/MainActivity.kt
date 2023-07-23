@@ -92,7 +92,7 @@ class MainActivity : ComponentActivity() {
                 val resubscribeClipboardRequest =
                     ClipboardServiceOuterClass.SubscribeClipboardRequest.newBuilder().build()
 
-                stub.subscribeClipboard(resubscribeClipboardRequest, subscribeObserver)
+                stub.subscribeClipboard(resubscribeClipboardRequest, this)
             }
 
             override fun onCompleted() {
