@@ -8,6 +8,7 @@ service ClipboardService {
   rpc CreateClipboards (CreateClipboardsRequest) returns (CreateClipboardsResponse) {}
   rpc GetClipboards (GetClipboardsRequest) returns (GetClipboardsResponse) {}
   rpc SubscribeClipboard (SubscribeClipboardRequest) returns (stream ClipboardMessage) {}
+  rpc DeleteClipboards (DeleteClipboardsRequest) returns (DeleteClipboardsResponse) {}
 }
 
 message CreateClipboardsRequest {
@@ -23,11 +24,25 @@ message GetClipboardsRequest {
 }
 
 message GetClipboardsResponse {
-  repeated string values = 1;
+  repeated ClipboardItem clipboards = 1;
+}
+
+message DeleteClipboardsRequest {
+  repeated string ids = 1;
+}
+
+message DeleteClipboardsResponse {
+  bool success = 1;
 }
 
 message SubscribeClipboardRequest {}
 
 message ClipboardMessage {
-  string value = 1;
+  repeated ClipboardItem items= 1;
+  string operation = 2;
+}
+
+message ClipboardItem {
+  string id = 1;
+  string content = 2;
 }

@@ -32,13 +32,14 @@ import io.grpc.ManagedChannel
 import io.grpc.stub.StreamObserver
 import kotlinx.coroutines.launch
 
+data class ClipboardItem(val id: String, val content: String)
 
 class MainActivity : ComponentActivity() {
-    private val contents = mutableStateOf(listOf<String?>())
+    val contents: MutableState<List<ClipboardItem?>> = mutableStateOf(listOf())
 
     //temporary server for testing
     private val server = "0.tcp.ap.ngrok.io"
-    private val port = 10586
+    private val port = 18395
 
     var channel: ManagedChannel = ManagedChannelBuilder.forAddress(server, port)
         .usePlaintext()
@@ -51,7 +52,9 @@ class MainActivity : ComponentActivity() {
         .build()
     private val responseObserver = object : StreamObserver<ClipboardServiceOuterClass.GetClipboardsResponse> {
         override fun onNext(value: ClipboardServiceOuterClass.GetClipboardsResponse) {
-            contents.value = value.valuesList
+            contents.value = value.clipboardsList.map{ clipboard ->
+                ClipboardItem(id = clipboard.id, content = clipboard.content)
+            }
         }
 
         override fun onError(t: Throwable) {
@@ -83,7 +86,19 @@ class MainActivity : ComponentActivity() {
         subscribeObserver = object : StreamObserver<ClipboardServiceOuterClass.ClipboardMessage> {
             override fun onNext(value: ClipboardServiceOuterClass.ClipboardMessage?) {
                 value?.let {
-                    contents.value = listOf(it.value) + contents.value
+                    if (value.operation=="create") {
+                            contents.value = value.itemsList.map { clipboard ->
+                                ClipboardItem(id = clipboard.id, content = clipboard.content)
+                            }+contents.value
+                    } else if (value.operation=="delete") {
+                        val deleteItems=value.itemsList.map { clipboard ->
+                            ClipboardItem(id = clipboard.id, content = clipboard.content)
+                        }
+                        for (item in deleteItems) {
+                            contents.value = contents.value.filter { it?.id != item.id }
+                        }
+                    }
+                    println(value)
                 }
             }
 
@@ -120,7 +135,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("UnrememberedMutableState", "UnusedMaterial3ScaffoldPaddingParameter")
 @Composable
-fun App(contents: MutableState<List<String?>> = mutableStateOf(listOf()), server: String, port: Int) {
+fun App(contents: MutableState<List<ClipboardItem?>> = mutableStateOf(listOf()), server: String, port: Int) {
     val context = LocalContext.current
 
     val showDetails :MutableState<Boolean?> = remember { mutableStateOf(false) }
@@ -210,7 +225,13 @@ fun App(contents: MutableState<List<String?>> = mutableStateOf(listOf()), server
                             CircularProgressIndicator()
                         }
                     } else {
-                        SwipeToDismissListItems(contents = contents, chosenText = chosenText, showDetails = showDetails)
+                        SwipeToDismissListItems(
+                            contents = contents,
+                            chosenText = chosenText,
+                            showDetails = showDetails,
+                            server = server,
+                            port = port
+                        )
                     }
                 }
                 SmallFloatingActionButton(
@@ -226,7 +247,6 @@ fun App(contents: MutableState<List<String?>> = mutableStateOf(listOf()), server
                 }
             }
         }
-
     }
 }
 
@@ -326,16 +346,18 @@ fun SwipeToDismissItem(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SwipeToDismissListItems(
-    contents: MutableState<List<String?>>,
+    contents: MutableState<List<ClipboardItem?>>,
     chosenText: MutableState<String?>,
-    showDetails: MutableState<Boolean?>
+    showDetails: MutableState<Boolean?>,
+    server: String,
+    port: Int
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         itemsIndexed(contents.value) { index, item ->
             val dismissState = rememberDismissState()
             if (item != null) {
                 SwipeToDismissItem(
-                    item = item,
+                    item = item.content,
                     chosenText = chosenText,
                     showDetails = showDetails,
                     dismissState = dismissState
@@ -345,6 +367,43 @@ fun SwipeToDismissListItems(
                 if (dismissState.currentValue == DismissValue.DismissedToEnd ||
                     dismissState.currentValue == DismissValue.DismissedToStart
                 ) {
+                    runBlocking {
+                        try {
+                            // Create a channel to the server
+                            val channel: ManagedChannel = ManagedChannelBuilder
+                                .forAddress(server, port)
+                                .usePlaintext()
+                                .build()
+
+                            // Create a stub for making requests
+                            val stub: ClipboardServiceGrpc.ClipboardServiceBlockingStub =
+                                ClipboardServiceGrpc.newBlockingStub(channel)
+
+                            // Prepare the request
+                            val deleteClipboardsRequest = ClipboardServiceOuterClass.DeleteClipboardsRequest
+                                .newBuilder()
+                                .addIds(item?.id ) // replace `idToDelete` with the ID of the clipboard to delete
+                                .build()
+
+                            // Make the request
+                            val response = stub.deleteClipboards(deleteClipboardsRequest)
+
+                            if (response.success) {
+                                // The clipboard was successfully deleted
+                                println("Clipboard deleted successfully!")
+                            } else {
+                                // The clipboard could not be deleted
+                                println("Clipboard deletion failed.")
+                            }
+
+                            // Don't forget to shut down the channel when you're done
+                            channel.shutdown()
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            println("Network error or server error")
+                        }
+                    }
+
                     contents.value = contents.value.filter { it != item }
                     dismissState.reset()
                 }
