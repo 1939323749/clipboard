@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -37,7 +38,7 @@ class MainActivity : ComponentActivity() {
 
     //temporary server for testing
     private val server = "0.tcp.ap.ngrok.io"
-    private val port = 14488
+    private val port = 10586
 
     var channel: ManagedChannel = ManagedChannelBuilder.forAddress(server, port)
         .usePlaintext()
@@ -121,12 +122,13 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun App(contents: MutableState<List<String?>> = mutableStateOf(listOf()), server: String, port: Int) {
     val context = LocalContext.current
+
+    val showDetails :MutableState<Boolean?> = remember { mutableStateOf(false) }
+    var showSubmitBox by remember { mutableStateOf(false) }
+    var inputText by remember { mutableStateOf("") }
+    val chosenText :MutableState<String?> = remember { mutableStateOf("") }
     ClipboardTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            var showDetails by remember { mutableStateOf(false) }
-            var showSubmitBox by remember { mutableStateOf(false) }
-            var inputText by remember { mutableStateOf("") }
-            var chosenText by remember { mutableStateOf("") }
             Scaffold {
                 Column(
                     modifier = Modifier.fillMaxSize(),
@@ -176,12 +178,12 @@ fun App(contents: MutableState<List<String?>> = mutableStateOf(listOf()), server
                             }
                         )
                     }
-                    if (showDetails) {
-                        Dialog(onDismissRequest = { showDetails = false }) {
+                    if (showDetails.value == true) {
+                        Dialog(onDismissRequest = { showDetails.value = false }) {
                             DetailBox(
-                                onDismiss = { showDetails = false },
-                                text = chosenText,
-                                onConfirm = { showDetails = false }
+                                onDismiss = { showDetails.value = false },
+                                text = chosenText.value!!,
+                                onConfirm = { showDetails.value = false }
                             )
                         }
                     }
@@ -208,7 +210,7 @@ fun App(contents: MutableState<List<String?>> = mutableStateOf(listOf()), server
                             CircularProgressIndicator()
                         }
                     } else {
-                        SwipeToDismissListItems(contents = contents, chosenText = mutableStateOf(""), showDetails = mutableStateOf(false))
+                        SwipeToDismissListItems(contents = contents, chosenText = chosenText, showDetails = showDetails)
                     }
                 }
                 SmallFloatingActionButton(
@@ -273,53 +275,72 @@ fun DetailBox(onDismiss: () -> Unit = {}, text: String, onConfirm: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+fun SwipeToDismissItem(
+    item: String,
+    chosenText: MutableState<String?>,
+    showDetails: MutableState<Boolean?>,
+    dismissState: DismissState
+) {
+    SwipeToDismiss(
+        state = dismissState,
+        directions = setOf(DismissDirection.StartToEnd, DismissDirection.EndToStart),
+        background = {
+            val color by animateColorAsState(
+                when (dismissState.targetValue) {
+                    DismissValue.Default -> Color.Transparent
+                    DismissValue.DismissedToEnd -> Color.Red
+                    DismissValue.DismissedToStart -> Color.Green
+                }
+            )
+            Box(Modifier.background(color))
+        },
+        dismissContent = {
+            Surface(
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 10.dp, bottom = 10.dp, start = 20.dp, end = 20.dp)
+                    .height(50.dp)
+                    .width(300.dp)
+                    .align(Alignment.CenterVertically)
+                    .clickable {
+                        chosenText.value = item
+                        showDetails.value = true
+                    },
+                color = MaterialTheme.colorScheme.primary
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = item,
+                        modifier = Modifier.padding(start = 20.dp)
+                    )
+                }
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 fun SwipeToDismissListItems(
     contents: MutableState<List<String?>>,
-    chosenText: MutableState<String>,
-    showDetails: MutableState<Boolean>
+    chosenText: MutableState<String?>,
+    showDetails: MutableState<Boolean?>
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         itemsIndexed(contents.value) { index, item ->
             val dismissState = rememberDismissState()
-            SwipeToDismiss(
-                state = dismissState,
-                directions = setOf(DismissDirection.StartToEnd, DismissDirection.EndToStart),
-                background = {
-                    val color by animateColorAsState(
-                        when (dismissState.targetValue) {
-                            DismissValue.Default -> Color.Transparent
-                            DismissValue.DismissedToEnd -> Color.Red
-                            DismissValue.DismissedToStart -> Color.Green
-                        }
-                    )
-                    Box(Modifier.background(color))
-                },
-                dismissContent = {
-                    Surface(
-                        shape = MaterialTheme.shapes.medium,
-                        modifier = Modifier.fillMaxSize()
-                            .padding(top = 10.dp, bottom = 10.dp, start = 20.dp, end = 20.dp).height(50.dp)
-                            .width(300.dp).align(Alignment.CenterVertically),
-                        color = MaterialTheme.colorScheme.primary,
-                        onClick = {
-                            chosenText.value = contents.value[index]!!
-                            showDetails.value = true
-                        }
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            if (item != null) {
-                                Text(
-                                    text = item,
-                                    modifier = Modifier.padding(start = 20.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            )
+            if (item != null) {
+                SwipeToDismissItem(
+                    item = item,
+                    chosenText = chosenText,
+                    showDetails = showDetails,
+                    dismissState = dismissState
+                )
+            }
             LaunchedEffect(key1 = dismissState.currentValue) {
                 if (dismissState.currentValue == DismissValue.DismissedToEnd ||
                     dismissState.currentValue == DismissValue.DismissedToStart
