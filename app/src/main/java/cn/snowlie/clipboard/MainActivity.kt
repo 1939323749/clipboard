@@ -5,8 +5,11 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
@@ -14,8 +17,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.lifecycleScope
 import clipboard_service.ClipboardServiceGrpc
 import clipboard_service.ClipboardServiceOuterClass
@@ -32,7 +37,7 @@ class MainActivity : ComponentActivity() {
 
     //temporary server for testing
     private val server = "0.tcp.ap.ngrok.io"
-    private val port = 18273
+    private val port = 14488
 
     var channel: ManagedChannel = ManagedChannelBuilder.forAddress(server, port)
         .usePlaintext()
@@ -172,16 +177,19 @@ fun App(contents: MutableState<List<String?>> = mutableStateOf(listOf()), server
                         )
                     }
                     if (showDetails) {
-                        DetailBox(
-                            onDismiss = { showDetails = false },
-                            text = chosenText,
-                            onConfirm = { showDetails = false })
+                        Dialog(onDismissRequest = { showDetails = false }) {
+                            DetailBox(
+                                onDismiss = { showDetails = false },
+                                text = chosenText,
+                                onConfirm = { showDetails = false }
+                            )
+                        }
                     }
                 }
             }
             Box(modifier = Modifier.fillMaxSize()) {
                 Column {
-                    SmallTopAppBar(title = { Text(text = "Clipboard") }, navigationIcon = {
+                    TopAppBar(title = { Text(text = "Clipboard") }, navigationIcon = {
                         IconButton(onClick = { /*TODO*/ }) {
                             Icon(
                                 imageVector = Icons.Default.Menu,
@@ -200,29 +208,7 @@ fun App(contents: MutableState<List<String?>> = mutableStateOf(listOf()), server
                             CircularProgressIndicator()
                         }
                     } else {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            items(contents.value.size) {
-                                Surface(
-                                    shape = MaterialTheme.shapes.medium,
-                                    modifier = Modifier.fillMaxSize()
-                                        .padding(top = 10.dp, bottom = 10.dp, start = 20.dp, end = 20.dp).height(50.dp)
-                                        .width(300.dp).align(Alignment.CenterHorizontally),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    onClick = {
-                                        chosenText = contents.value[it]!!
-                                        showDetails = true
-                                    }
-                                ) {
-                                    Column(
-                                        modifier = Modifier.fillMaxSize(),
-                                        verticalArrangement = Arrangement.Center
-                                    ) { Text(text = contents.value[it]!!, modifier = Modifier.padding(start = 20.dp)) }
-                                }
-                            }
-                        }
+                        SwipeToDismissListItems(contents = contents, chosenText = mutableStateOf(""), showDetails = mutableStateOf(false))
                     }
                 }
                 SmallFloatingActionButton(
@@ -285,5 +271,63 @@ fun DetailBox(onDismiss: () -> Unit = {}, text: String, onConfirm: () -> Unit) {
     )
 }
 
-
-
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SwipeToDismissListItems(
+    contents: MutableState<List<String?>>,
+    chosenText: MutableState<String>,
+    showDetails: MutableState<Boolean>
+) {
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
+        itemsIndexed(contents.value) { index, item ->
+            val dismissState = rememberDismissState()
+            SwipeToDismiss(
+                state = dismissState,
+                directions = setOf(DismissDirection.StartToEnd, DismissDirection.EndToStart),
+                background = {
+                    val color by animateColorAsState(
+                        when (dismissState.targetValue) {
+                            DismissValue.Default -> Color.Transparent
+                            DismissValue.DismissedToEnd -> Color.Red
+                            DismissValue.DismissedToStart -> Color.Green
+                        }
+                    )
+                    Box(Modifier.background(color))
+                },
+                dismissContent = {
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.fillMaxSize()
+                            .padding(top = 10.dp, bottom = 10.dp, start = 20.dp, end = 20.dp).height(50.dp)
+                            .width(300.dp).align(Alignment.CenterVertically),
+                        color = MaterialTheme.colorScheme.primary,
+                        onClick = {
+                            chosenText.value = contents.value[index]!!
+                            showDetails.value = true
+                        }
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            if (item != null) {
+                                Text(
+                                    text = item,
+                                    modifier = Modifier.padding(start = 20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            )
+            LaunchedEffect(key1 = dismissState.currentValue) {
+                if (dismissState.currentValue == DismissValue.DismissedToEnd ||
+                    dismissState.currentValue == DismissValue.DismissedToStart
+                ) {
+                    contents.value = contents.value.filter { it != item }
+                    dismissState.reset()
+                }
+            }
+        }
+    }
+}
