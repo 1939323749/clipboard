@@ -13,6 +13,7 @@ service ClipboardService {
 
 message CreateClipboardsRequest {
   repeated string values = 1;
+  string device_id = 2;
 }
 
 message CreateClipboardsResponse {
@@ -45,4 +46,5 @@ message ClipboardMessage {
 message ClipboardItem {
   string id = 1;
   string content = 2;
+  string device_id = 3;
 }

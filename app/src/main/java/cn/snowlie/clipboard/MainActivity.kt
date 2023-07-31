@@ -26,20 +26,21 @@ import androidx.lifecycle.lifecycleScope
 import clipboard_service.ClipboardServiceGrpc
 import clipboard_service.ClipboardServiceOuterClass
 import cn.snowlie.clipboard.ui.theme.ClipboardTheme
-import kotlinx.coroutines.*
-import io.grpc.ManagedChannelBuilder
 import io.grpc.ManagedChannel
+import io.grpc.ManagedChannelBuilder
 import io.grpc.stub.StreamObserver
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import android.os.Build
 
-data class ClipboardItem(val id: String, val content: String)
+data class ClipboardItem(val id: String, val content: String,val deviceID: String)
 
+@SuppressLint("HardwareIds")
 class MainActivity : ComponentActivity() {
     val contents: MutableState<List<ClipboardItem?>> = mutableStateOf(listOf())
 
     //temporary server for testing
     private val server = "0.tcp.ap.ngrok.io"
-    private val port = 18395
+    private val port = 13577
 
     var channel: ManagedChannel = ManagedChannelBuilder.forAddress(server, port)
         .usePlaintext()
@@ -53,7 +54,7 @@ class MainActivity : ComponentActivity() {
     private val responseObserver = object : StreamObserver<ClipboardServiceOuterClass.GetClipboardsResponse> {
         override fun onNext(value: ClipboardServiceOuterClass.GetClipboardsResponse) {
             contents.value = value.clipboardsList.map{ clipboard ->
-                ClipboardItem(id = clipboard.id, content = clipboard.content)
+                ClipboardItem(id = clipboard.id, content = clipboard.content,deviceID = clipboard.deviceId)
             }
         }
 
@@ -77,10 +78,13 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var subscribeObserver: StreamObserver<ClipboardServiceOuterClass.ClipboardMessage>
 
+    private val deviceID= getDeviceId()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         setContent {
-            App(contents, server, port)
+            App(contents, server, port,deviceID)
         }
 
         subscribeObserver = object : StreamObserver<ClipboardServiceOuterClass.ClipboardMessage> {
@@ -88,11 +92,11 @@ class MainActivity : ComponentActivity() {
                 value?.let {
                     if (value.operation=="create") {
                             contents.value = value.itemsList.map { clipboard ->
-                                ClipboardItem(id = clipboard.id, content = clipboard.content)
+                                ClipboardItem(id = clipboard.id, content = clipboard.content,deviceID = clipboard.deviceId)
                             }+contents.value
                     } else if (value.operation=="delete") {
                         val deleteItems=value.itemsList.map { clipboard ->
-                            ClipboardItem(id = clipboard.id, content = clipboard.content)
+                            ClipboardItem(id = clipboard.id, content = clipboard.content,deviceID = clipboard.deviceId)
                         }
                         for (item in deleteItems) {
                             contents.value = contents.value.filter { it?.id != item.id }
@@ -135,7 +139,12 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("UnrememberedMutableState", "UnusedMaterial3ScaffoldPaddingParameter")
 @Composable
-fun App(contents: MutableState<List<ClipboardItem?>> = mutableStateOf(listOf()), server: String, port: Int) {
+fun App(
+    contents: MutableState<List<ClipboardItem?>> = mutableStateOf(listOf()),
+    server: String,
+    port: Int,
+    deviceID: String
+) {
     val context = LocalContext.current
 
     val showDetails :MutableState<Boolean?> = remember { mutableStateOf(false) }
@@ -174,6 +183,7 @@ fun App(contents: MutableState<List<ClipboardItem?>> = mutableStateOf(listOf()),
                                             val createClipboardsRequest =
                                                 ClipboardServiceOuterClass.CreateClipboardsRequest.newBuilder()
                                                     .addValues(submitText)
+                                                    .setDeviceId(deviceID)
                                                     .build()
                                             val response = stub.createClipboards(createClipboardsRequest)
 
@@ -230,7 +240,8 @@ fun App(contents: MutableState<List<ClipboardItem?>> = mutableStateOf(listOf()),
                             chosenText = chosenText,
                             showDetails = showDetails,
                             server = server,
-                            port = port
+                            port = port,
+                            deviceID = deviceID
                         )
                     }
                 }
@@ -299,7 +310,8 @@ fun SwipeToDismissItem(
     item: String,
     chosenText: MutableState<String?>,
     showDetails: MutableState<Boolean?>,
-    dismissState: DismissState
+    dismissState: DismissState,
+    isMyDevice: Boolean,
 ) {
     SwipeToDismiss(
         state = dismissState,
@@ -327,7 +339,7 @@ fun SwipeToDismissItem(
                         chosenText.value = item
                         showDetails.value = true
                     },
-                color = MaterialTheme.colorScheme.primary
+                color = if (isMyDevice){MaterialTheme.colorScheme.primary} else {MaterialTheme.colorScheme.onSecondary}
             ) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
@@ -350,7 +362,8 @@ fun SwipeToDismissListItems(
     chosenText: MutableState<String?>,
     showDetails: MutableState<Boolean?>,
     server: String,
-    port: Int
+    port: Int,
+    deviceID: String
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         itemsIndexed(contents.value) { index, item ->
@@ -360,7 +373,8 @@ fun SwipeToDismissListItems(
                     item = item.content,
                     chosenText = chosenText,
                     showDetails = showDetails,
-                    dismissState = dismissState
+                    dismissState = dismissState,
+                    isMyDevice = item.deviceID == deviceID
                 )
             }
             LaunchedEffect(key1 = dismissState.currentValue) {
@@ -410,4 +424,12 @@ fun SwipeToDismissListItems(
             }
         }
     }
+}
+
+@SuppressLint("HardwareIds")
+fun getDeviceId(): String {
+    val manufacturer = Build.MANUFACTURER
+    val model = Build.MODEL
+    val fingerprint = Build.FINGERPRINT
+    return "$manufacturer-$model-$fingerprint"
 }
