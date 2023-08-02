@@ -1,14 +1,19 @@
 syntax = "proto3";
 
-package clipboard_service;
+package proto;
 
-option go_package = "github.com/1939323749/clipboard_server/clipboard_service";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/field_mask.proto";
+
+option go_package = "github.com/1939323749/clipboard_server/proto";
 
 service ClipboardService {
   rpc CreateClipboards (CreateClipboardsRequest) returns (CreateClipboardsResponse) {}
   rpc GetClipboards (GetClipboardsRequest) returns (GetClipboardsResponse) {}
   rpc SubscribeClipboard (SubscribeClipboardRequest) returns (stream ClipboardMessage) {}
   rpc DeleteClipboards (DeleteClipboardsRequest) returns (DeleteClipboardsResponse) {}
+  rpc StreamMessage (stream StreamMsg) returns (stream StreamMsg) {}
+  rpc Update (UpdateRequest) returns (UpdateResponse) {}
 }
 
 message CreateClipboardsRequest {
@@ -22,6 +27,7 @@ message CreateClipboardsResponse {
 
 message GetClipboardsRequest {
   repeated string ids = 1;
+  repeated google.protobuf.FieldMask mask = 2;
 }
 
 message GetClipboardsResponse {
@@ -47,4 +53,18 @@ message ClipboardItem {
   string id = 1;
   string content = 2;
   string device_id = 3;
+}
+
+message UpdateRequest {
+  string id = 1;
+  string new_content = 2;
+}
+
+message UpdateResponse {
+  bool success = 1;
+}
+
+message StreamMsg{
+  string msg = 1;
+  google.protobuf.Timestamp timestamp = 2;
 }

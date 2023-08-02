@@ -23,8 +23,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.lifecycleScope
-import clipboard_service.ClipboardServiceGrpc
-import clipboard_service.ClipboardServiceOuterClass
+import proto.ClipboardServiceGrpc
+import proto.ClipboardServiceOuterClass
 import cn.snowlie.clipboard.ui.theme.ClipboardTheme
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
@@ -39,8 +39,8 @@ class MainActivity : ComponentActivity() {
     val contents: MutableState<List<ClipboardItem?>> = mutableStateOf(listOf())
 
     //temporary server for testing
-    private val server = "0.tcp.ap.ngrok.io"
-    private val port = 13577
+    private val server = "6.tcp.ngrok.io"
+    private val port = 11744
 
     var channel: ManagedChannel = ManagedChannelBuilder.forAddress(server, port)
         .usePlaintext()
@@ -151,9 +151,11 @@ fun App(
     var showSubmitBox by remember { mutableStateOf(false) }
     var inputText by remember { mutableStateOf("") }
     val chosenText :MutableState<String?> = remember { mutableStateOf("") }
+
+
     ClipboardTheme {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Scaffold {
+            Scaffold{
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.Center,
@@ -226,23 +228,29 @@ fun App(
                         }
                     }, colors = TopAppBarDefaults.centerAlignedTopAppBarColors(MaterialTheme.colorScheme.background)
                     )
-                    if (contents.value.isEmpty()) {
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            CircularProgressIndicator()
+                    Column(
+                        modifier = Modifier.padding(bottom = 20.dp).fillMaxSize()
+                    ) {
+                        if (contents.value.isEmpty()) {
+                            Column(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                CircularProgressIndicator()
+                            }
+                        } else {
+                            SwipeToDismissListItems(
+                                contents = contents,
+                                chosenText = chosenText,
+                                showDetails = showDetails,
+                                server = server,
+                                port = port,
+                                deviceID = deviceID
+                            )
+
                         }
-                    } else {
-                        SwipeToDismissListItems(
-                            contents = contents,
-                            chosenText = chosenText,
-                            showDetails = showDetails,
-                            server = server,
-                            port = port,
-                            deviceID = deviceID
-                        )
+
                     }
                 }
                 SmallFloatingActionButton(
@@ -322,34 +330,47 @@ fun SwipeToDismissItem(
                     DismissValue.Default -> Color.Transparent
                     DismissValue.DismissedToEnd -> Color.Red
                     DismissValue.DismissedToStart -> Color.Green
-                }
+                }, label = ""
             )
             Box(Modifier.background(color))
         },
         dismissContent = {
             Surface(
                 shape = MaterialTheme.shapes.medium,
-                modifier = Modifier
+                modifier = if (isMyDevice){
+                    Modifier
                     .fillMaxSize()
-                    .padding(top = 10.dp, bottom = 10.dp, start = 20.dp, end = 20.dp)
+                    .padding(top = 10.dp, bottom = 10.dp, start = 60.dp, end = 20.dp)
                     .height(50.dp)
                     .width(300.dp)
                     .align(Alignment.CenterVertically)
                     .clickable {
                         chosenText.value = item
                         showDetails.value = true
-                    },
+                    }
+                }else{
+                    Modifier
+                        .fillMaxSize()
+                        .padding(top = 10.dp, bottom = 10.dp, start = 20.dp, end = 60.dp)
+                        .height(50.dp)
+                        .width(300.dp)
+                        .align(Alignment.CenterVertically)
+                        .clickable {
+                            chosenText.value = item
+                            showDetails.value = true
+                        }
+                     },
                 color = if (isMyDevice){MaterialTheme.colorScheme.primary} else {MaterialTheme.colorScheme.onSecondary}
             ) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = item,
-                        modifier = Modifier.padding(start = 20.dp)
-                    )
-                }
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = item,
+                            modifier = Modifier.padding(start = 20.dp)
+                        )
+                    }
             }
         }
     )
@@ -369,6 +390,7 @@ fun SwipeToDismissListItems(
         itemsIndexed(contents.value) { index, item ->
             val dismissState = rememberDismissState()
             if (item != null) {
+
                 SwipeToDismissItem(
                     item = item.content,
                     chosenText = chosenText,
@@ -376,6 +398,7 @@ fun SwipeToDismissListItems(
                     dismissState = dismissState,
                     isMyDevice = item.deviceID == deviceID
                 )
+
             }
             LaunchedEffect(key1 = dismissState.currentValue) {
                 if (dismissState.currentValue == DismissValue.DismissedToEnd ||
