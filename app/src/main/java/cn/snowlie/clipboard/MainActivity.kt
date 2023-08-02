@@ -34,6 +34,8 @@ import android.os.Build
 
 data class ClipboardItem(val id: String, val content: String,val deviceID: String)
 
+data class ContentItem(val id: String, val content: String,val deviceID: String,val server: String,val port: Int)
+
 @SuppressLint("HardwareIds")
 class MainActivity : ComponentActivity() {
     val contents: MutableState<List<ClipboardItem?>> = mutableStateOf(listOf())
@@ -90,16 +92,27 @@ class MainActivity : ComponentActivity() {
         subscribeObserver = object : StreamObserver<ClipboardServiceOuterClass.ClipboardMessage> {
             override fun onNext(value: ClipboardServiceOuterClass.ClipboardMessage?) {
                 value?.let {
-                    if (value.operation=="create") {
+                    when (value.operation) {
+                        "create" -> {
                             contents.value = value.itemsList.map { clipboard ->
                                 ClipboardItem(id = clipboard.id, content = clipboard.content,deviceID = clipboard.deviceId)
                             }+contents.value
-                    } else if (value.operation=="delete") {
-                        val deleteItems=value.itemsList.map { clipboard ->
-                            ClipboardItem(id = clipboard.id, content = clipboard.content,deviceID = clipboard.deviceId)
                         }
-                        for (item in deleteItems) {
-                            contents.value = contents.value.filter { it?.id != item.id }
+                        "delete" -> {
+                            val deleteItems=value.itemsList.map { clipboard ->
+                                ClipboardItem(id = clipboard.id, content = clipboard.content,deviceID = clipboard.deviceId)
+                            }
+                            for (item in deleteItems) {
+                                contents.value = contents.value.filter { it?.id != item.id }
+                            }
+                        }
+                        "update" -> {
+                            val updateItems=value.itemsList.map { clipboard ->
+                                ClipboardItem(id = clipboard.id, content = clipboard.content,deviceID = clipboard.deviceId)
+                            }
+                            for (item in updateItems) {
+                                contents.value = contents.value.map { if (it?.id == item.id) ClipboardItem(id = item.id, content = item.content,deviceID=deviceID) else it }
+                            }
                         }
                     }
                     println(value)
@@ -150,7 +163,7 @@ fun App(
     val showDetails :MutableState<Boolean?> = remember { mutableStateOf(false) }
     var showSubmitBox by remember { mutableStateOf(false) }
     var inputText by remember { mutableStateOf("") }
-    val chosenText :MutableState<String?> = remember { mutableStateOf("") }
+    val chosenText: MutableState<ContentItem?> = mutableStateOf(ContentItem("", "", "", "", 0))
 
 
     ClipboardTheme {
@@ -166,12 +179,12 @@ fun App(
                             onDismiss = { showSubmitBox = false },
                             text = inputText,
                             onTextChange = { inputText = it },
-                            onConfirm = { submitText ->
+                            onConfirm = { submitText->
                                 if (submitText.isEmpty()) {
 
                                     Toast.makeText(context, "Input is empty!", Toast.LENGTH_SHORT).show()
 
-                                } else {
+                                } else if (submitText.isNotEmpty()) {
                                     runBlocking {
                                         try {
                                             val channel: ManagedChannel =
@@ -209,7 +222,13 @@ fun App(
                         Dialog(onDismissRequest = { showDetails.value = false }) {
                             DetailBox(
                                 onDismiss = { showDetails.value = false },
-                                text = chosenText.value!!,
+                                contentItem = ContentItem(
+                                    id = chosenText.value!!.id,
+                                    content = chosenText.value!!.content,
+                                    deviceID = deviceID,
+                                    server = server,
+                                    port = port
+                                ),
                                 onConfirm = { showDetails.value = false }
                             )
                         }
@@ -248,7 +267,6 @@ fun App(
                                 port = port,
                                 deviceID = deviceID
                             )
-
                         }
 
                     }
@@ -272,9 +290,8 @@ fun App(
 @Composable
 fun SubmitBox(
     onDismiss: () -> Unit = {}, text: String, onTextChange: (String) -> Unit,
-    onConfirm: (String) -> Unit
+    onConfirm: (String) -> Unit,
 ) {
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = "Submit Box") },
@@ -299,24 +316,64 @@ fun SubmitBox(
 }
 
 @Composable
-fun DetailBox(onDismiss: () -> Unit = {}, text: String, onConfirm: () -> Unit) {
-    AlertDialog(
+fun DetailBox(onDismiss: () -> Unit = {}, contentItem: ContentItem, onConfirm: () -> Unit) {
+    val inputText= remember { mutableStateOf(contentItem.content) }
+    val modify= remember { mutableStateOf(false) }
+
+    if(modify.value.not())AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = "Detail Box") },
-        text = { Text(text = text) },
+        text = { Text(text = contentItem.content) },
+        dismissButton = {
+            Button(onClick = {
+                modify.value=true
+            }) {
+                Text("Modify")
+            }
+        },
         confirmButton = {
             Button(onClick = onConfirm) {
                 Text("OK")
             }
         }
-    )
+    )else{
+        SubmitBox(
+            onDismiss = onDismiss,
+            text = inputText.value,
+            onTextChange = { inputText.value = it },
+            onConfirm = { it ->
+                runBlocking {
+                    val channel: ManagedChannel =
+                        ManagedChannelBuilder.forAddress(contentItem.server, contentItem.port)
+                            .usePlaintext()
+                            .build()
+
+                    val stub: ClipboardServiceGrpc.ClipboardServiceBlockingStub =
+                        ClipboardServiceGrpc.newBlockingStub(channel)
+
+                    val updateClipboardsRequest =
+                        ClipboardServiceOuterClass.UpdateRequest.newBuilder()
+                            .setId(contentItem.id)
+                            .setNewContent(it)
+                            .build()
+                    val response = stub.update(updateClipboardsRequest)
+
+                    if (response.success) {
+                        onDismiss()
+                        channel.shutdown()
+                    }
+                }
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SwipeToDismissItem(
+    id: String,
     item: String,
-    chosenText: MutableState<String?>,
+    chosenText: MutableState<ContentItem?>,
     showDetails: MutableState<Boolean?>,
     dismissState: DismissState,
     isMyDevice: Boolean,
@@ -345,7 +402,12 @@ fun SwipeToDismissItem(
                     .width(300.dp)
                     .align(Alignment.CenterVertically)
                     .clickable {
-                        chosenText.value = item
+                        chosenText.value = ContentItem(
+                            id = id,
+                            content = item,
+                            deviceID = getDeviceId(),
+                            server = chosenText.value!!.server,
+                            port = chosenText.value!!.port)
                         showDetails.value = true
                     }
                 }else{
@@ -356,7 +418,12 @@ fun SwipeToDismissItem(
                         .width(300.dp)
                         .align(Alignment.CenterVertically)
                         .clickable {
-                            chosenText.value = item
+                            chosenText.value = ContentItem(
+                                id = id,
+                                content = item,
+                                deviceID = getDeviceId(),
+                                server = chosenText.value!!.server,
+                                port = chosenText.value!!.port)
                             showDetails.value = true
                         }
                      },
@@ -380,7 +447,7 @@ fun SwipeToDismissItem(
 @Composable
 fun SwipeToDismissListItems(
     contents: MutableState<List<ClipboardItem?>>,
-    chosenText: MutableState<String?>,
+    chosenText: MutableState<ContentItem?>,
     showDetails: MutableState<Boolean?>,
     server: String,
     port: Int,
@@ -390,8 +457,8 @@ fun SwipeToDismissListItems(
         itemsIndexed(contents.value) { index, item ->
             val dismissState = rememberDismissState()
             if (item != null) {
-
                 SwipeToDismissItem(
+                    id = item.id,
                     item = item.content,
                     chosenText = chosenText,
                     showDetails = showDetails,
