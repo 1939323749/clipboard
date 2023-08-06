@@ -319,6 +319,7 @@ fun SubmitBox(
 fun DetailBox(onDismiss: () -> Unit = {}, contentItem: ContentItem, onConfirm: () -> Unit) {
     val inputText= remember { mutableStateOf(contentItem.content) }
     val modify= remember { mutableStateOf(false) }
+    val rawVlaue=contentItem.content
 
     if(modify.value.not())AlertDialog(
         onDismissRequest = onDismiss,
@@ -342,6 +343,10 @@ fun DetailBox(onDismiss: () -> Unit = {}, contentItem: ContentItem, onConfirm: (
             text = inputText.value,
             onTextChange = { inputText.value = it },
             onConfirm = { it ->
+                if(it==rawVlaue){
+                    modify.value=false
+                    return@SubmitBox
+                }
                 runBlocking {
                     val channel: ManagedChannel =
                         ManagedChannelBuilder.forAddress(contentItem.server, contentItem.port)
