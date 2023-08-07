@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">clipboard</string>
+    <string name="default_notification_channel_id">clipboard_channel_id</string>
 </resources>

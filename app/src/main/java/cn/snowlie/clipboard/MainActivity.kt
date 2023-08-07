@@ -1,10 +1,21 @@
 package cn.snowlie.clipboard
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.service.notification.NotificationListenerService
+import android.service.notification.StatusBarNotification
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -22,15 +33,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.lifecycleScope
-import proto.ClipboardServiceGrpc
-import proto.ClipboardServiceOuterClass
 import cn.snowlie.clipboard.ui.theme.ClipboardTheme
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
 import io.grpc.stub.StreamObserver
-import kotlinx.coroutines.*
-import android.os.Build
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import proto.ClipboardServiceGrpc
+import proto.ClipboardServiceOuterClass
 
 data class ClipboardItem(val id: String, val content: String,val deviceID: String)
 
@@ -82,8 +97,43 @@ class MainActivity : ComponentActivity() {
 
     private val deviceID= getDeviceId()
 
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun sendNotification(title:String,message: String) {
+        val notificationId = 1
+
+        val channelId = R.string.default_notification_channel_id.toString()
+        val builder = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(androidx.core.R.drawable.notify_panel_notification_icon_bg)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+
+        val notificationManager = this.getSystemService(NOTIFICATION_SERVICE) as NotificationManager;
+        notificationManager.createNotificationChannel(
+            NotificationChannel(
+                channelId,
+                "clipboard",
+                NotificationManager.IMPORTANCE_DEFAULT
+            )
+        )
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            Toast.makeText(this, "No permission", Toast.LENGTH_SHORT).show()
+            return
+        }
+        NotificationManagerCompat.from(this).notify(notificationId, builder.build())
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        val serviceIntent = Intent(this, ClipboardService::class.java)
+        startService(serviceIntent)
 
         setContent {
             App(contents, server, port,deviceID)
@@ -97,6 +147,7 @@ class MainActivity : ComponentActivity() {
                             contents.value = value.itemsList.map { clipboard ->
                                 ClipboardItem(id = clipboard.id, content = clipboard.content,deviceID = clipboard.deviceId)
                             }+contents.value
+                            if (value.itemsList[0].deviceId!= getDeviceId())sendNotification("New clipboard added",value.itemsList[0].content.toString())
                         }
                         "delete" -> {
                             val deleteItems=value.itemsList.map { clipboard ->
@@ -105,6 +156,7 @@ class MainActivity : ComponentActivity() {
                             for (item in deleteItems) {
                                 contents.value = contents.value.filter { it?.id != item.id }
                             }
+                            if (value.itemsList[0].deviceId!= getDeviceId())sendNotification("New clipboard deleted",value.itemsList[0].content.toString())
                         }
                         "update" -> {
                             val updateItems=value.itemsList.map { clipboard ->
@@ -113,6 +165,7 @@ class MainActivity : ComponentActivity() {
                             for (item in updateItems) {
                                 contents.value = contents.value.map { if (it?.id == item.id) ClipboardItem(id = item.id, content = item.content,deviceID=deviceID) else it }
                             }
+                            if (value.itemsList[0].deviceId!= getDeviceId())sendNotification("New clipboard updated",value.itemsList[0].content.toString())
                         }
                     }
                     println(value)
@@ -319,7 +372,7 @@ fun SubmitBox(
 fun DetailBox(onDismiss: () -> Unit = {}, contentItem: ContentItem, onConfirm: () -> Unit) {
     val inputText= remember { mutableStateOf(contentItem.content) }
     val modify= remember { mutableStateOf(false) }
-    val rawVlaue=contentItem.content
+    val rawValue=contentItem.content
 
     if(modify.value.not())AlertDialog(
         onDismissRequest = onDismiss,
@@ -343,7 +396,7 @@ fun DetailBox(onDismiss: () -> Unit = {}, contentItem: ContentItem, onConfirm: (
             text = inputText.value,
             onTextChange = { inputText.value = it },
             onConfirm = { it ->
-                if(it==rawVlaue){
+                if(it==rawValue){
                     modify.value=false
                     return@SubmitBox
                 }
@@ -527,4 +580,32 @@ fun getDeviceId(): String {
     val model = Build.MODEL
     val fingerprint = Build.FINGERPRINT
     return "$manufacturer-$model-$fingerprint"
+}
+
+class ClipboardService : NotificationListenerService() {
+
+    private lateinit var notificationManager: NotificationManager
+
+    override fun onCreate() {
+        super.onCreate()
+        notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    }
+
+    override fun onNotificationPosted(sbn: StatusBarNotification) {
+        sendNotification(sbn)
+    }
+
+    private fun sendNotification(sbn: StatusBarNotification,channelId: String = "clipboard") {
+        val notificationId = sbn.id // 通知的ID
+        val notificationTitle = sbn.notification.extras.getString(Notification.EXTRA_TITLE) // 通知标题
+        val notificationText = sbn.notification.extras.getString(Notification.EXTRA_TEXT) // 通知内容
+
+        val builder = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(androidx.core.R.drawable.notification_action_background)
+            .setContentTitle(notificationTitle)
+            .setContentText(notificationText)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+
+        notificationManager.notify(notificationId, builder.build())
+    }
 }
