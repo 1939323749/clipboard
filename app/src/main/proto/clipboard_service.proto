@@ -36,6 +36,7 @@ message GetClipboardsResponse {
 
 message DeleteClipboardsRequest {
   repeated string ids = 1;
+  string device_id = 2;
 }
 
 message DeleteClipboardsResponse {
@@ -58,6 +59,7 @@ message ClipboardItem {
 message UpdateRequest {
   string id = 1;
   string new_content = 2;
+  string device_id = 3;
 }
 
 message UpdateResponse {

@@ -413,6 +413,7 @@ fun DetailBox(onDismiss: () -> Unit = {}, contentItem: ContentItem, onConfirm: (
                         ClipboardServiceOuterClass.UpdateRequest.newBuilder()
                             .setId(contentItem.id)
                             .setNewContent(it)
+                            .setDeviceId(contentItem.deviceID)
                             .build()
                     val response = stub.update(updateClipboardsRequest)
 
@@ -545,6 +546,7 @@ fun SwipeToDismissListItems(
                             val deleteClipboardsRequest = ClipboardServiceOuterClass.DeleteClipboardsRequest
                                 .newBuilder()
                                 .addIds(item?.id ) // replace `idToDelete` with the ID of the clipboard to delete
+                                .setDeviceId(deviceID)
                                 .build()
 
                             // Make the request
