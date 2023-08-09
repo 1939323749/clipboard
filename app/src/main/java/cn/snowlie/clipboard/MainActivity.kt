@@ -97,6 +97,7 @@ class MainActivity : ComponentActivity() {
 
     private val deviceID= getDeviceId()
 
+    @SuppressLint("PrivateResource")
     @RequiresApi(Build.VERSION_CODES.O)
     private fun sendNotification(title:String,message: String) {
         val notificationId = 1
@@ -109,7 +110,7 @@ class MainActivity : ComponentActivity() {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
 
-        val notificationManager = this.getSystemService(NOTIFICATION_SERVICE) as NotificationManager;
+        val notificationManager = this.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.createNotificationChannel(
             NotificationChannel(
                 channelId,
@@ -401,6 +402,10 @@ fun DetailBox(onDismiss: () -> Unit = {}, contentItem: ContentItem, onConfirm: (
                     return@SubmitBox
                 }
                 runBlocking {
+                    if (it.isEmpty()) {
+                        Toast.makeText(LocalContext.current, "Input is empty!", Toast.LENGTH_SHORT).show()
+                        return@runBlocking
+                    }
                     val channel: ManagedChannel =
                         ManagedChannelBuilder.forAddress(contentItem.server, contentItem.port)
                             .usePlaintext()
@@ -597,7 +602,8 @@ class ClipboardService : NotificationListenerService() {
         sendNotification(sbn)
     }
 
-    private fun sendNotification(sbn: StatusBarNotification,channelId: String = "clipboard") {
+    @SuppressLint("PrivateResource")
+    private fun sendNotification(sbn: StatusBarNotification, channelId: String = "clipboard") {
         val notificationId = sbn.id // 通知的ID
         val notificationTitle = sbn.notification.extras.getString(Notification.EXTRA_TITLE) // 通知标题
         val notificationText = sbn.notification.extras.getString(Notification.EXTRA_TEXT) // 通知内容
